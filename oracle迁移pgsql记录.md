@@ -220,6 +220,8 @@ $\Longrightarrow$
 
 ```sql
 to_timestamp('2021-09-01 15:40:20', 'yyyy-mm-dd hh24:mi:ss')
+或
+oracle.to_date('2021-09-01 15:40:20', 'yyyy-mm-dd hh24:mi:ss')  -- 此为orafce兼容的函数
 ```
 
 `PostgreSQL`虽然也有`to_date`函数，但其转换结果不带时分秒。
@@ -336,7 +338,7 @@ where rownum_ > 0 and rownum_ <= 5
 $\Longrightarrow$
 
 ```sql
-select * from emp limit 5 offset 0
+select * from emp limit (5 - 0) offset 0
 ```
 
 ---
@@ -588,6 +590,95 @@ $\Longrightarrow$
 update tableName set colName = 'XXX' where [判断条件]
 ```
 
+---
+
+将`''`转为`null`的`java`方法：
+
+```java
+/**
+     * 将对象内值为空字符的String类型属性赋值为null
+     * 用于未对空字符串作判断的sql新增和修改
+     * oracle内对字段用空字符串赋值会以null值存储，而postgresql内对空字符串和null值是区别存储
+     * 因此需将对象内值为空字符串的属性赋值为null以作兼容
+     * 否则前端有些仅对null进行判断的地方会因忽略了空字符串而出现意想不到的bug
+     * （比如图片url，本应为null值进行一些操作，却因空字符串显示为无法加载的图片）
+     *
+     * @param target 待转换的对象
+     * @param <T> 待转换对象的类型
+     * @return 转换好的对象
+     */
+    public static <T> T convertEmptyStringToNull(T target) {
+        Class<?> clazz = target.getClass();
+        Field[] fields = clazz.getDeclaredFields();
+        final String stringType = "class java.lang.String";
+        final String nullValue = null;
+        for (Field field : fields) {
+            // 判断该字段是否是String类型
+            if (stringType.equals(field.getGenericType().toString())) {
+                String fieldName = field.getName();
+                // 将字段名首字母改为大写
+                fieldName = fieldName.substring(0, 1).toUpperCase() + fieldName.substring(1);
+                try {
+                    // 该字段的get方法
+                    Method getMethod = clazz.getMethod("get" + fieldName);
+                    String value = (String) getMethod.invoke(target);
+                    // 判断该字段的值是否为空字符串
+                    if ("".equals(value)) {
+                        // 该字段的set方法
+                        Method setMethod = clazz.getMethod("set" + fieldName, String.class);
+                        // 设置字段的值为null
+                        setMethod.invoke(target, nullValue);
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+        return target;
+    }
+
+/**
+     * convertEmptyStringToNull方法对map的实现，功能与上述方法相同
+     *
+     * @param target 待转换的map
+     * @return 转换好的map
+     */
+    public static Map<String, Object> convertEmptyStringToNull(Map<String, Object> target) {
+        if (target == null || target.isEmpty()) {
+            return target;
+        }
+        for (String key : target.keySet()) {
+            Object value = target.get(key);
+            // 判断该值是否为空字符串
+            if ("".equals(value)) {
+                // 将空字符串改为null值
+                target.put(key, null);
+            }
+        }
+        return target;
+    }
+
+/**
+     * 批量将空字符串转为null值
+     *
+     * @param target 待转换的list
+     * @return 转换好的list
+     */
+    public static <T> List<T> convertEmptyStringToNullByGroup(List<T> target) {
+        if (target == null || target.isEmpty()) {
+            return target;
+        }
+        for (T data : target) {
+            if (data instanceof Map) {
+                convertEmptyStringToNull((Map<String, Object>) data);
+            } else {
+                convertEmptyStringToNull(data);
+            }
+        }
+        return target;
+    }
+```
+
 ### 15、`select`注意点
 
 `Oracle`内查询结果的列名默认是大写的，而`PostgreSQL`内查询结果的列名默认是小写的。在`Mybatis`中，如果查询的返回结果类型是对象或者自定义的结果集映射，那么该查询结果的字段名是恒定不变的；而如果返回结果类型是`Map`，那么其`key`值就会受到数据库种类的影响，即连接`Oracle`查询时`key`值全部大写，连接`PostgreSQL`查询时`key`值全部小写。因此需在sql内对查询的每一个列附加一个用`""`括起的大写别名（如果sql内原本就有`""`括起的别名则无需处理）：
@@ -634,6 +725,52 @@ select colName "name" from tableName
 
 ```sql
 select colName as name from tableName
+```
+
+---
+
+将`Map`的`key`值全部转为大写的`java`方法：
+
+```java
+/**
+     * 将map内所有的key转为大写
+     * 用于兼容返回类型为map且查询结果没加带引号的别名的sql查询
+     * oracle内查询结果的列名默认大写，postgresql内查询结果的列名默认小写
+     * 因此需将结果集map的key转为大写以作兼容
+     * 否则前端会出现字段取不到的情况
+     *
+     * @param target 待转换的map
+     * @return 转换好的map
+     */
+    public static Map<String, Object> convertKeyToUppercase(Map<String, Object> target) {
+        if (target == null || target.isEmpty()) {
+            return target;
+        }
+        Map<String, Object> result = new HashMap<>(target.size());
+        for (String key : target.keySet()) {
+            // 将key转为大写
+            String newKey = key.toUpperCase();
+            result.put(newKey, target.get(key));
+        }
+        return result;
+    }
+
+/**
+     * 批量将key转换为大写
+     *
+     * @param target 待转换的list
+     * @return 转换好的list
+     */
+    public static List convertKeyToUppercaseByGroup(List target) {
+        if (target == null || target.isEmpty()) {
+            return target;
+        }
+        List result = new ArrayList<>(target.size());
+        for (Object map : target) {
+            result.add(convertKeyToUppercase((Map<String, Object>) map));
+        }
+        return result;
+    }
 ```
 
 ### 16、`delete`注意点
