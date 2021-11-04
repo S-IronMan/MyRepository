@@ -853,3 +853,60 @@ $\Longrightarrow$
 select (regexp_matches('17,20,23', '[^,]+'))[1]
 ```
 
+### 21、`merge into`
+
+```sql
+merge into targetTable A
+using sourceTable B  -- 或 using (子查询sql) B
+on [判断条件]
+when matched then update [更新语句sql]
+when not matched then insert [新增语句sql]
+```
+
+$\Longrightarrow$
+
+```sql
+with upsert as (
+    update targetTable A
+    set colName1 = B.colName1,
+    	colName2 = B.colName2  -- 设上面的[更新语句sql]为 set A.colName1 = B.colName1, A.colName2 = B.colName2
+    from sourceTable B
+    where A.ID = B.ID  -- 设上面的[判断条件]为 A.ID = B.ID
+    returning A.*
+)  -- 设上面的[新增语句sql]为 (colName1, colName2) values (B.colName1, B.colName2)
+insert into targetTable (colName1, colName2)
+select B1.colName1, B1.colName2
+from sourceTable B1
+where not exists (
+    select 1 from upsert u
+    where B1.ID = u.ID
+)
+```
+
+`sourceTable` 为子查询 `sql` 时：
+
+```sql
+with temp as (
+    [子查询sql]
+),
+upsert as (
+    update targetTable A
+    set colName1 = B.colName1,
+    	colName2 = B.colName2
+    from temp B
+    where A.ID = B.ID
+    returning A.*
+)
+insert into targetTable (colName1, colName2)
+select B1.colName1, B1.colName2
+from temp B1
+where not exists (
+    select 1 from upsert u
+    where u.ID = B1.ID
+)
+```
+
+### 22、`arcgis` 相关函数
+
+见官方文档：https://desktop.arcgis.com/zh-cn/arcmap/10.7/manage-data/using-sql-with-gdbs/st-geometry.htm
+
