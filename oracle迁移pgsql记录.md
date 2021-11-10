@@ -883,7 +883,7 @@ where not exists (
 )
 ```
 
-`sourceTable` 为子查询 `sql` 时：
+`sourceTable`为子查询sql时：
 
 ```sql
 with temp as (
@@ -909,4 +909,45 @@ where not exists (
 ### 22、`arcgis` 相关函数
 
 见官方文档：https://desktop.arcgis.com/zh-cn/arcmap/10.7/manage-data/using-sql-with-gdbs/st-geometry.htm
+
+### 23、字符串连接符`||`
+
+在`Oracle`中，`null`与其他字符串用符号`||`连接时会被忽略：
+
+```sql
+select 'abc' || null || '123' from dual  -- 输出'abc123'
+```
+
+但在`PostgreSQL`中，`null`与其他字符串用符号`||`连接时结果为`null`：
+
+```sql
+select 'abc' || null || '123'  -- 输出null
+```
+
+因此，对于多个列用符号`||`连接的情况：
+
+```sql
+colName1 || colName2 || colName3
+```
+
+$\Longrightarrow$
+
+```sql
+nvl(colName1::varchar, '') || nvl(colName2::varchar, '') || nvl(colName3::varchar, '')
+-- nvl函数为orafce兼容的函数，亦可用 (case when colName is null then '' else colName end) 代替
+```
+
+对于`Mybatis`传参的情况：
+
+```sql
+colName like '%' || #{param} || '%'
+```
+
+$\Longrightarrow$
+
+```sql
+<if test="param != null">
+	colName like '%' || #{param} || '%'
+</if>
+```
 
