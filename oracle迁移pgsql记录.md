@@ -45,7 +45,18 @@ psql -h [数据库IP] -p [端口号] -U [用户名] -d [数据库名]
 输入指令给数据库创建extension：
 
 ```
-create extension orafce
+create extension orafce;
+```
+
+在search_path内添加oracle模式名（数据库的连接`ur`l里不能加 `currentSchema=sde` 的配置，这会让search_path的设置不生效，如需指定项目所用的默认模式，使用用户名为该模式名的用户，或在search_path内添加该模式）：
+
+```sql
+方式1：数据库配置文件postgresql.conf内修改
+search_path = '"$user", public, oracle, pg_catalog'
+方式2：用户级别的设置
+ALTER USER user1 SET search_path = "$user",public,oracle,pg_catalog;
+方式3：数据库级别的设置
+ALTER DATABASE db1 SET search_path = "$user",public,oracle,pg_catalog;
 ```
 
 完成安装。
@@ -107,37 +118,44 @@ case colName when 条件1 then value1 when 条件2 then value2 when 条件3 then
 ```sql
 create or replace function decode(variadic p_decode_list text[])
 returns text
-  as
+ as
 $$
 declare
-  -- 获取数组长度(即入参个数)
-  v_len integer := array_length(p_decode_list, 1);
-  -- 声明存放返回值的变量
-  v_ret text;
+ -- 获取数组长度(即入参个数)
+ v_len integer := array_length(p_decode_list, 1);
 begin
-  -- 同Oracle相同当参数不足三个抛出异常
-  if v_len >= 3 then
-    -- Oracle中的DECODE是拿第一个数依次和之后的偶数位值进行比较,相同则取偶数位+1的数值
-    for i in 2..(v_len - 1) loop
-      v_ret := null;
-      if mod(i, 2) = 0 then
-        if p_decode_list[1] = p_decode_list[i] then
-          v_ret := p_decode_list[i + 1];
-        elsif p_decode_list[1] <> p_decode_list[i] then
-          if v_len = i + 2 and v_len > 3 then
-            v_ret := p_decode_list[v_len];
-          end if;
-        end if;
-      end if;
-      exit when v_ret is not null;
-    end loop;
-  else
-    raise exception 'UPG-00938: not enough args for function.';
-  end if;
-  return v_ret;
+ /*
+ * 功能说明:模拟Oracle中的DECODE功能(字符串处理, 其它格式可以自行转换返回值)
+ * 参数说明:格式同Oracle相同,至少三个参数
+ * 实现原理: 1、VARIADIC 允许变参; 2、Oracle中的DECODE是拿第一个数依次和之后的偶数位值进行比较,相同则取偶数位+1的数值,否则取最后一位值(最后一位为偶数位,否则为null)
+ */
+ 
+    -- 同Oracle相同当参数不足三个抛出异常
+    if v_len >= 3 then
+        -- Oracle中的DECODE是拿第一个数依次和之后的偶数位值进行比较,相同则取偶数位+1的数值
+        for i in 2..(v_len - 1) loop
+            if mod(i, 2) = 0 then
+                -- 同Oracle可以匹配null值
+                if p_decode_list[1] is null and p_decode_list[i] is null then
+                    return p_decode_list[i + 1];
+                -- 若两值相等，则返回后一个值
+                elsif p_decode_list[1] = p_decode_list[i] then
+                    return p_decode_list[i + 1];
+                -- 若两值不等，但该值是最后一个匹配项且传参有默认值，则返回默认值
+                -- 同Oracle兼容第一个值为null的情况
+                elsif v_len = i + 2 and v_len > 3 then
+                    return p_decode_list[v_len];
+                end if;
+            end if;
+        end loop;
+    else
+        raise exception 'UPG-00938: not enough args for function.';
+    end if;
+    -- 同Oracle没有匹配项则返回null
+    return null;
 end;
 $$
-  language plpgsql;
+ language plpgsql;
 ```
 
 此时对于判断条件和对应value均为字符串类型的情况，最多只需手动转换一下入参类型，而不必费心转换为`case-when`语句了。
