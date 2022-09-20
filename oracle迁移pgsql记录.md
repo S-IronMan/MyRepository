@@ -969,3 +969,34 @@ $\Longrightarrow$
 </if>
 ```
 
+### 24、JSON操作
+
+从JSON字符串中取某一字段的值：
+
+```sql
+select json_value('{"test1": "111", "test2": "222"}', '$.test1') from dual
+```
+
+$\Longrightarrow$
+
+```sql
+-- 第一个参数为json类型，返回text类型
+select json_extract_path_text('{"test1": "111", "test2": "222"}', 'test1')
+```
+
+从JSON字符串中取嵌套对象的值：
+
+```sql
+-- 嵌套格式为“'$.path1.path2.path3....'”
+select json_value('{"test1": {"test3": "333"}, "test2": "222"}', '$.test1.test3') from dual
+```
+
+$\Longrightarrow$
+
+```sql
+-- 嵌套格式为“'path1', 'path2', 'path3',...”
+select json_extract_path_text('{"test1": {"test3": "333"}, "test2": "222"}', 'test1', 'test3')
+-- json_extract_path函数返回的是json类型，而json_extract_path_text函数将json类型进一步转为了text类型进行返回，因此上面的语句也能写为下面的形式
+select json_extract_path_text(json_extract_path('{"test1": {"test3": "333"}, "test2": "222"}', 'test1'), 'test3')
+```
+
