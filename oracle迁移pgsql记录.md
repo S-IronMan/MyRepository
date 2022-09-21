@@ -1000,3 +1000,65 @@ select json_extract_path_text('{"test1": {"test3": "333"}, "test2": "222"}', 'te
 select json_extract_path_text(json_extract_path('{"test1": {"test3": "333"}, "test2": "222"}', 'test1'), 'test3')
 ```
 
+### 25、随机数
+
+```sql
+select dbms_random.value() from dual  -- 0-1之间的随机数，精度38位
+```
+
+$\Longrightarrow$
+
+```sql
+select random()  -- 0-1之间的随机数，精度17位
+```
+
+### 26、除数为0
+
+在`Oracle`中，可以用`decode`函数规避除数为0的情况；但在`PostgreSQL`中，这样依旧会报除数为0的异常（即便真正执行时除数不会为0），必须通过`case when`语句定义分支：
+
+```sql
+select decode(num, 0, 0, 10 / num) as result from (
+    select 0 as num from dual
+) temp
+```
+
+$\Longrightarrow$
+
+```sql
+select (case when num = 0 then 0 else 10 / num end) as result from (
+    select 0 as num
+) temp
+```
+
+### 27、数据透视
+
+```sql
+select col3, "0", "1", "2"
+from tablename
+pivot(sum(col1) for col2 in (0, 1, 2))
+-- sum(col1)可替换为其他聚合函数，col2为要从行转为列的字段，后面的(0, 1, 2)为将col2字段的哪些值转为列，col3为其他需要展示的字段
+-- 转换为列的值也可以有别名
+select col3, colname0, colname1, colname2
+from tablename
+pivot(sum(col1) for col2 in (0 colname0, 1 colname1, 2 colname2))
+```
+
+$\Longrightarrow$
+
+```sql
+-- case when语句形式
+select col3,
+sum(case when col2 = 0 then col1 else 0 end) as "0",
+sum(case when col2 = 1 then col1 else 0 end) as "1",
+sum(case when col2 = 2 then col1 else 0 end) as "2"
+from tablename
+group by col3
+-- filter子句形式
+select col3,
+sum(col2) filter(where col1 = 0) as "0",
+sum(col2) filter(where col1 = 1) as "1",
+sum(col2) filter(where col1 = 2) as "2"
+from tablename
+group by col3
+```
+
