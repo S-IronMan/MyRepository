@@ -373,6 +373,46 @@ $\Longrightarrow$
 select row_number() over(), t.* from emp t
 ```
 
+---
+
+update/delete语句限定更新/删除数量：
+
+```sql
+-- 更新前n行数据
+update tableName
+set columnName = newVal
+where [查询条件]
+and rownum <= n
+-- 删除前n行数据
+delete from tableName
+where [查询条件]
+and rownum <= n
+```
+
+$\Longrightarrow$
+
+```sql
+-- 更新前n行数据
+with temp as (
+    select id  -- 主键
+    from tableName
+    where [查询条件]
+    limit n
+)
+update tableName
+set columnName = newVal
+where id in (select id from temp)
+-- 删除前n行数据
+with temp as (
+    select id  -- 主键
+    from tableName
+    where [查询条件]
+    limit n
+)
+delete from tableName
+where id in (select id from temp)
+```
+
 ### 6、递归查询
 
 ```sql
