@@ -1102,3 +1102,88 @@ from tablename
 group by col3
 ```
 
+### 28、存储过程
+
+`PostgreSQL`的存储过程参数不允许有`OUT`类型的参数，对应的只支持`INOUT`类型，而函数支持`OUT`类型参数，因此用函数来代替存储过程。
+
+`Mybatis`里的`sql`语句也要进行兼容：
+
+```xml
+<select id="testQuery" statementType="CALLABLE">
+    call ${map.callableName}(
+    	#{map.param1,mode=IN},
+    	#{map.param2,mode=IN},
+    	<!-- 用游标存储返回结果，此处的javaType=ResultSet可省略 -->
+    	#{map.result,mode=OUT,jdbcType=CURSOR,javaType=ResultSet,resultMap=xxxResultMap}
+    )
+</select>
+```
+
+$\Longrightarrow$
+
+```xml
+<select id="testQuery" statementType="CALLABLE">
+    <!-- 最外层要套一个花括号 -->
+    {call ${map.callableName}(
+    	#{map.param1,mode=IN},
+    	#{map.param2,mode=IN},
+    	<!-- jdbcType为OTHER，此处的javaType=ResultSet不可省略 -->
+    	#{map.result,mode=OUT,jdbcType=OTHER,javaType=ResultSet,resultMap=xxxResultMap}
+    )}
+</select>
+```
+
+---
+
+如果使用了游标作为`OUT`类型参数来返回结果，则需在调用该`sql`的`java`方法上添加`@Transactional`注解进行事务管理，注解的`propagation`值默认为`Propagation.REQUIRED`，即业务方法需要在一个事务中进行，方法结束后才会提交事务。如果不加该注解，那么`Mybatis`的`dao`层方法调用完毕后会自动提交事务，参数中的游标会被关闭，此时再去访问参数中的游标时会报`cursor "<unnamed portal 1>" does not exist`错误。因此需要加上该注解来保证事务是在访问完游标参数后再提交的。
+
+### 29、PL/pgSQL
+
+`PL/pgSQL`的函数和存储过程主体必须写在字符串里：
+
+```sql
+create or replace function test_function(testParam numeric)
+returns text as
+'  -- 单引号
+begin
+...  -- 函数主体
+end;
+'  -- 单引号
+language plpgsql;
+```
+
+但这样做函数主体里的单引号就得进行转义，这样非常不方便，因此可以用`$$`符号代替单引号：
+
+```sql
+create or replace function test_function(testParam numeric)
+returns text as
+$$
+begin
+...  -- 函数主体
+end;
+$$
+language plpgsql;
+```
+
+---
+
+`Oracle`的`PL/SQL`里，执行`select into`语句时如果查询结果为空会报`NO_DATA_FOUND`异常；但`PL/pgSQL`里不同，执行`select into`语句时会用查询结果的第一行进行赋值，如果查询结果为空则会用`null`进行赋值。
+
+要想触发`NO_DATA_FOUND`异常在查询结果为空时进行一些操作，需要在`into`关键字后面加上`strict`关键字，即：
+
+```sql
+select column1 into strict temp_val from tableName;
+exception when NO_DATA_FOUND then
+	...  --查询结果为空时的一些操作
+```
+
+或者借用`found`变量：
+
+```sql
+select column1 into temp_val from tableName;
+if not found then
+	...  --查询结果为空时的一些操作
+end if;
+```
+
+需要注意的是，`PL/pgSQL`里使用`strict`关键字后，如果查询结果大于1行，则会报`TOO_MANY_ROWS`异常。
