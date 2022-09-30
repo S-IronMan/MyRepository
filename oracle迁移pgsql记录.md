@@ -79,7 +79,7 @@ colName::type   例如：'123'::integer、user_name::varchar
 cast(colName as type)   例如：cast('123' as integer)、cast(user_name as integer)
 ```
 
-可以执行下列sql语句查看数据库中已有的类型转换（例如查看所有源类型为varchar的转换）：
+可以执行下列`sql`语句查看数据库中已有的类型转换（例如查看所有源类型为varchar的转换）：
 
 ```sql
 select castsource::regtype, casttarget::regtype, castcontext, castfunc from pg_cast where castsource='varchar'::regtype;
@@ -87,7 +87,7 @@ select castsource::regtype, casttarget::regtype, castcontext, castfunc from pg_c
 
 除了`PostgreSQL`内置的类型转换，其余的转换因存在精度缺失或是报错的风险而没有内置。`integer`和`varchar`间的类型转换就没有内置，但本次迁移过程中发现了大量多表关联时用`integer`类型的列和`varchar`类型的列作为连接条件的情况，综合考虑下来还是决定加上这两个类型间的自动转换（`integer`类型转到`varchar`类型不存在精度缺失和报错的情况；而`varchar`类型转到`integer`类型如果会发生精度缺失或报错，那么原先连`Oracle`数据库时便会发现并解决，因此认定不存在精度缺失或报错的情况）。
 
-新增自动类型转换的sql如下：
+新增自动类型转换的`sql`如下：
 
 ```sql
 create cast (integer as varchar) with inout AS IMPLICIT;
@@ -162,7 +162,7 @@ $$
 
 ### 2、自定义`sys_guid`函数
 
-`sys_guid`函数为`Oracle`内置的uuid生成函数，`orafce`似乎没有对其进行兼容，因此自定义一个：
+`sys_guid`函数为`Oracle`内置的`uuid`生成函数，`orafce`似乎没有对其进行兼容，因此自定义一个：
 
 ```sql
 create or replace function sys_guid()
@@ -589,7 +589,7 @@ select to_char(rn + 1) from generate_series(1, n) rn
 
 ### 14、`insert`和`update`注意点
 
-`Oracle`内是不区分`null`值和`''`的，即对一个字段用`''`赋值，会以`null`值进行存储。但`PostgreSQL`内对此是进行区分的，即对一个字段用`''`赋值，就以`''`进行存储，用`null`值赋值，就以`null`值进行存储。而且如果对非字符串类型的字段（如`integer`类型的字段）用`''`进行赋值，`PostgreSQL`还会报语法错误。而对某些字符串类型的字段用`''`赋值，本该以`null`值存储的地方却用`''`进行了存储，这可能会在其他代码里产生难以预见的bug（例如前端调用新增接口时对存放图片url的字段用`''`赋值，`PostgreSQL`对该字段便以`''`进行存储，而后续取出这条数据时，由于前端只对`null`值而未对`''`进行判断处理，导致页面上出现了“无中生有”的加载失败的图片）。因此在调用sql前需对所有的`''`进行判断处理，本次迁移的项目采用了`Mybatis`框架，以此为例：
+`Oracle`内是不区分`null`值和`''`的，即对一个字段用`''`赋值，会以`null`值进行存储。但`PostgreSQL`内对此是进行区分的，即对一个字段用`''`赋值，就以`''`进行存储，用`null`值赋值，就以`null`值进行存储。而且如果对非字符串类型的字段（如`integer`类型的字段）用`''`进行赋值，`PostgreSQL`还会报语法错误。而对某些字符串类型的字段用`''`赋值，本该以`null`值存储的地方却用`''`进行了存储，这可能会在其他代码里产生难以预见的bug（例如前端调用新增接口时对存放图片`url`的字段用`''`赋值，`PostgreSQL`对该字段便以`''`进行存储，而后续取出这条数据时，由于前端只对`null`值而未对`''`进行判断处理，导致页面上出现了“无中生有”的加载失败的图片）。因此在调用`sql`前需对所有的`''`进行判断处理，本次迁移的项目采用了`Mybatis`框架，以此为例：
 
 `insert`时：
 
@@ -618,11 +618,11 @@ $\Longrightarrow$
 </if>
 ```
 
-或者定义`java`方法，在调用sql前对传入的参数对象或参数`Map`进行处理，将其中的`''`全部转为`null`值。
+或者定义拦截器，对`Mybatis`内部的`update`方法（其包含了`sql`的`insert`、`update`、`delete`操作）进行拦截，将其中为`''`的参数全部转为`null`值（不过这样处理后，`update`方法里只对`null`判断的地方，原先传`''`可将该字段置空，现在便不行了）。
 
 ---
 
-同理，在`update`的sql中，将所有用`''`赋值的地方改用`null`值赋值：
+同理，在`update`的`sql`中，将所有用`''`赋值的地方改用`null`值赋值：
 
 ```sql
 update tableName set colName = '' where [判断条件]
@@ -650,96 +650,85 @@ update tableName set colName = 'XXX' where [判断条件]
 
 ---
 
-将`''`转为`null`的`java`方法：
+将参数里`''`转为`null`的拦截器：
 
 ```java
-/**
-     * 将对象内值为空字符的String类型属性赋值为null
-     * 用于未对空字符串作判断的sql新增和修改
-     * oracle内对字段用空字符串赋值会以null值存储，而postgresql内对空字符串和null值是区别存储
-     * 因此需将对象内值为空字符串的属性赋值为null以作兼容
-     * 否则前端有些仅对null进行判断的地方会因忽略了空字符串而出现意想不到的bug
-     * （比如图片url，本应为null值进行一些操作，却因空字符串显示为无法加载的图片）
-     *
-     * @param target 待转换的对象
-     * @param <T> 待转换对象的类型
-     * @return 转换好的对象
-     */
-    public static <T> T convertEmptyStringToNull(T target) {
-        Class<?> clazz = target.getClass();
-        Field[] fields = clazz.getDeclaredFields();
-        final String stringType = "class java.lang.String";
-        final String nullValue = null;
-        for (Field field : fields) {
-            // 判断该字段是否是String类型
-            if (stringType.equals(field.getGenericType().toString())) {
-                String fieldName = field.getName();
-                // 将字段名首字母改为大写
-                fieldName = fieldName.substring(0, 1).toUpperCase() + fieldName.substring(1);
-                try {
-                    // 该字段的get方法
-                    Method getMethod = clazz.getMethod("get" + fieldName);
-                    String value = (String) getMethod.invoke(target);
-                    // 判断该字段的值是否为空字符串
-                    if ("".equals(value)) {
-                        // 该字段的set方法
-                        Method setMethod = clazz.getMethod("set" + fieldName, String.class);
-                        // 设置字段的值为null
-                        setMethod.invoke(target, nullValue);
+package com.wiscom.interceptor;
+
+import org.apache.ibatis.executor.Executor;
+import org.apache.ibatis.mapping.MappedStatement;
+import org.apache.ibatis.plugin.*;
+import org.springframework.beans.BeanUtils;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.Map;
+import java.util.Properties;
+
+@Intercepts({@Signature(type = Executor.class, method = "update", args = {MappedStatement.class, Object.class})})
+public class UpdateInterceptor implements Interceptor {
+    @Override
+    public Object intercept(Invocation invocation) throws Throwable {
+        Object[] args = invocation.getArgs();
+        Object params = args[1];
+        // 若参数不为空，将其中值为空字符串的字段改为null值
+        if (params != null) {
+            if (params instanceof Map) {
+                for (Object key : ((Map) params).keySet()) {
+                    Object paramVal = ((Map) params).get(key);
+                    if ("".equals(paramVal)) {
+                        ((Map) params).put(key, null);
                     }
-                } catch (Exception e) {
-                    e.printStackTrace();
+                }
+            } else {
+                Class<?> clazz = params.getClass();
+                // 如果是实体类传参
+                if (!BeanUtils.isSimpleValueType(clazz)) {
+                    Field[] fields = clazz.getDeclaredFields();
+                    final String stringType = "class java.lang.String";
+                    final String nullValue = null;
+                    for (Field field : fields) {
+                        // 判断该字段是否是String类型
+                        if (stringType.equals(field.getGenericType().toString())) {
+                            String fieldName = field.getName();
+                            // 将字段名首字母改为大写
+                            fieldName = fieldName.substring(0, 1).toUpperCase() + fieldName.substring(1);
+                            try {
+                                // 该字段的get方法
+                                Method getMethod = clazz.getMethod("get" + fieldName);
+                                String value = (String) getMethod.invoke(params);
+                                // 判断该字段的值是否为空字符串
+                                if ("".equals(value)) {
+                                    // 该字段的set方法
+                                    Method setMethod = clazz.getMethod("set" + fieldName, String.class);
+                                    // 设置字段的值为null
+                                    setMethod.invoke(params, nullValue);
+                                }
+                            } catch (Exception e) {
+                                e.printStackTrace();
+                            }
+                        }
+                    }
                 }
             }
         }
-        return target;
+        return invocation.proceed();
     }
 
-/**
-     * convertEmptyStringToNull方法对map的实现，功能与上述方法相同
-     *
-     * @param target 待转换的map
-     * @return 转换好的map
-     */
-    public static Map<String, Object> convertEmptyStringToNull(Map<String, Object> target) {
-        if (target == null || target.isEmpty()) {
-            return target;
-        }
-        for (String key : target.keySet()) {
-            Object value = target.get(key);
-            // 判断该值是否为空字符串
-            if ("".equals(value)) {
-                // 将空字符串改为null值
-                target.put(key, null);
-            }
-        }
-        return target;
+    @Override
+    public Object plugin(Object o) {
+        return Plugin.wrap(o, this);
     }
 
-/**
-     * 批量将空字符串转为null值
-     *
-     * @param target 待转换的list
-     * @return 转换好的list
-     */
-    public static <T> List<T> convertEmptyStringToNullByGroup(List<T> target) {
-        if (target == null || target.isEmpty()) {
-            return target;
-        }
-        for (T data : target) {
-            if (data instanceof Map) {
-                convertEmptyStringToNull((Map<String, Object>) data);
-            } else {
-                convertEmptyStringToNull(data);
-            }
-        }
-        return target;
+    @Override
+    public void setProperties(Properties properties) {
     }
+}
 ```
 
 ### 15、`select`注意点
 
-`Oracle`内查询结果的列名默认是大写的，而`PostgreSQL`内查询结果的列名默认是小写的。在`Mybatis`中，如果查询的返回结果类型是对象或者自定义的结果集映射，那么该查询结果的字段名是恒定不变的；而如果返回结果类型是`Map`，那么其`key`值就会受到数据库种类的影响，即连接`Oracle`查询时`key`值全部大写，连接`PostgreSQL`查询时`key`值全部小写。因此需在sql内对查询的每一个列附加一个用`""`括起的大写别名（如果sql内原本就有`""`括起的别名则无需处理）：
+`Oracle`内查询结果的列名默认是大写的，而`PostgreSQL`内查询结果的列名默认是小写的。在`Mybatis`中，如果查询的返回结果类型是对象或者自定义的结果集映射，那么该查询结果的字段名是恒定不变的；而如果返回结果类型是`Map`，那么其`key`值就会受到数据库种类的影响，即连接`Oracle`查询时`key`值全部大写，连接`PostgreSQL`查询时`key`值全部小写。因此需在`sql`内对查询的每一个列附加一个用`""`括起的大写别名（如果`sql`内原本就有`""`括起的别名则无需处理）：
 
 ```sql
 select id, name from tableName
